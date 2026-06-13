@@ -19,7 +19,14 @@ npm run dev
 
 Login:
 - Demo earner: `demo@earnforge.app` / `demo1234`
-- Admin: `admin@earnforge.app` / `ChangeMe123!Secure`
+- Admin: `admin@earnforge.app` / (see .env ADMIN_BOOTSTRAP_PASSWORD - we set a strong random one)
+
+**Security note (important for launch):**
+- .env now has a strong random JWT_SECRET (64 bytes base64).
+- ADMIN_BOOTSTRAP_PASSWORD was updated to a strong 32-char value.
+- Use `powershell -ExecutionPolicy Bypass -File .\scripts\generate-secrets.ps1` anytime to generate fresh ones.
+- After first admin login on production, change the password or disable bootstrap.
+- Never commit real .env with secrets (already in .gitignore).
 
 ## Key implemented systems (no placeholders)
 
