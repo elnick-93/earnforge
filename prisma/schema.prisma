@@ -1,0 +1,211 @@
+// EarnForge - Production-grade Swagbucks/Freecash-style GPT platform
+// Immutable ledger for all earnings/payouts. Strong typing. Full auditability.
+// Provider: sqlite for instant local run (swap to postgresql for prod scale)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String
+  name              String?
+  role              String   @default("EARNER") // EARNER | ADVERTISER | ADMIN
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  emailVerified     Boolean  @default(false)
+  phone             String?
+  kycStatus         String   @default("NONE") // NONE | PENDING | VERIFIED | REJECTED
+  currentPoints     Int      @default(0) // Denormalized for speed; always reconciled via ledger
+  isPro             Boolean  @default(false)
+  proExpiresAt      DateTime?
+  referralCode      String   @unique
+  referredById      String?
+  referredBy        User?    @relation("SelfReferral", fields: [referredById], references: [id])
+  referredUsers     User[]   @relation("SelfReferral")
+  myReferrals       Referral[] @relation("MyReferrals")
+  referredByReferral Referral? @relation("ReferredByReferral")
+  deviceFingerprint String?  // Simple anti-fraud seed
+
+  // Relations
+  earnings          EarningsLedger[]
+  completions       TaskCompletion[]
+  payoutRequests    PayoutRequest[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  supportTickets    SupportTicket[]
+  subscriptions     Subscription[]
+  campaigns         Campaign[]       // As advertiser
+  // referredEarnings via myReferrals on the other side of Referral; query via referrals or direct User.referredBy for trees
+
+  @@index([email])
+  @@index([role])
+  @@index([referralCode])
+}
+
+model EarningsLedger {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // EARN | ADJUST_CREDIT | FEE | PAYOUT_DEBIT | REFERRAL_BONUS
+  amount      Int      // Can be negative for debits
+  balanceAfter Int
+  reference   String?  // taskId, payoutId, campaignId, referralId
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Task {
+  id             String   @id @default(cuid())
+  title          String
+  description    String
+  category       String   // SURVEY | VIDEO | GAME | OFFER | DAILY | MICRO
+  pointsReward   Int
+  timeEstMinutes Int      @default(5)
+  requirements   String   // JSON string: {questions: [...], durationSec: 60, quiz: [...] , gameType: 'clicker'}
+  dailyCap       Int      @default(5)
+  lifetimeCap    Int?
+  isActive       Boolean  @default(true)
+  minKyc         String   @default("NONE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  completions TaskCompletion[]
+}
+
+model TaskCompletion {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status         String   @default("PENDING") // PENDING | APPROVED | REJECTED | AUTO_APPROVED
+  pointsAwarded  Int      @default(0)
+  timeTakenSec   Int?
+  answers        String?  // JSON
+  ip             String?
+  userAgent      String?
+  deviceId       String?
+  fraudScore     Float    @default(0)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([taskId, status])
+}
+
+model PayoutRequest {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountPoints Int
+  amountUSD    Float
+  method       String   // PAYPAL | CRYPTO_BTC | GIFT_AMAZON | GIFT_GOOGLE | BANK
+  destination  String   // email / wallet / "AMZ-GC-..." 
+  feePoints    Int      @default(0)
+  status       String   @default("PENDING") // PENDING | APPROVED | PAID | REJECTED
+  txRef        String?  // External ref or "INTERNAL-xxx"
+  processedBy  String?
+  processedAt  DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, status, createdAt])
+}
+
+model Referral {
+  id             String   @id @default(cuid())
+  referrerId     String
+  referrer       User     @relation("MyReferrals", fields: [referrerId], references: [id])
+  referredId     String   @unique
+  referred       User     @relation("ReferredByReferral", fields: [referredId], references: [id])
+  signupBonus    Int      @default(250)
+  earningsShare  Float    @default(0.10) // 10% of referred earnings
+  totalEarned    Int      @default(0)
+  createdAt      DateTime @default(now())
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  advertiserId String
+  advertiser  User     @relation(fields: [advertiserId], references: [id])
+  title       String
+  description String
+  budgetUSD   Float
+  spentUSD    Float    @default(0)
+  cpaPoints   Int      // What user earns per action
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  // Future: link to generated Tasks
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String   // USER_REGISTER, TASK_COMPLETE, PAYOUT_REQUEST, ADMIN_APPROVE etc.
+  entity    String?
+  entityId  String?
+  meta      String?  // JSON
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model SupportTicket {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  subject   String
+  body      String
+  status    String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED | CLOSED
+  replies   String?  // JSON array of {from, body, at}
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  plan             String   @default("PRO")
+  status           String   @default("ACTIVE")
+  stripeSubId      String?
+  stripeCustomerId String?
+  currentPeriodEnd DateTime?
+  createdAt        DateTime @default(now())
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique // signed JWT or random for cookie
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ip        String?
+  userAgent String?
+}
