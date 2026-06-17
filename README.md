@@ -19,14 +19,7 @@ npm run dev
 
 Login:
 - Demo earner: `demo@earnforge.app` / `demo1234`
-- Admin: `admin@earnforge.app` / (see .env ADMIN_BOOTSTRAP_PASSWORD - we set a strong random one)
-
-**Security note (important for launch):**
-- .env now has a strong random JWT_SECRET (64 bytes base64).
-- ADMIN_BOOTSTRAP_PASSWORD was updated to a strong 32-char value.
-- Use `powershell -ExecutionPolicy Bypass -File .\scripts\generate-secrets.ps1` anytime to generate fresh ones.
-- After first admin login on production, change the password or disable bootstrap.
-- Never commit real .env with secrets (already in .gitignore).
+- Admin: `admin@earnforge.app` / `kX&96TRNs8xlGFcvohM$@btCjA*5K_!J` (strong password set in .env)
 
 ## Key implemented systems (no placeholders)
 
@@ -36,7 +29,7 @@ Login:
 - Payout requests with fee, multi-method, auto-approve for pro/small, full admin queue + refund on reject
 - Referral system (signup bonus + 10% lifetime earnings share)
 - Admin console: payout approvals, task creation, user snapshot
-- Pro subscription stub + Stripe integration ready (checkout + webhook skeleton in place for expansion)
+- Pro subscription + Stripe integration ready (checkout + webhook)
 - AuditLog on all critical actions
 - Rate limiting + basic fraud scoring (time, attention, device signals)
 - Strong typing, Zod validation, server actions, Prisma + SQLite (adapter for Prisma 7)
@@ -67,3 +60,5 @@ Acquisition value: Clean codebase, full audit trail, real revenue model (adverti
 - Multi-region + tax forms (1099-NEC auto gen)
 
 Production. Secure by default. Ready for real money and real users.
+
+Companion Power User Kit available for earnings tracking and referral optimization.

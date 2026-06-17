@@ -9,7 +9,7 @@ $jwtBytes = New-Object byte[] 64
 $rng.GetBytes($jwtBytes)
 $jwtSecret = [Convert]::ToBase64String($jwtBytes)
 
-# Strong admin bootstrap password (24 chars, mixed)
+# Strong admin bootstrap password (28 chars, mixed)
 $chars = (65..90) + (97..122) + (48..57) + @(33,35,36,37,38,42,64,63,95)  # A-Z a-z 0-9 ! # $ % & * @ ? _
 $adminPass = -join ($chars | Get-Random -Count 28 | ForEach-Object { [char]$_ })
 
