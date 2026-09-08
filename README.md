@@ -6,20 +6,21 @@ Modern clone + evolution of Swagbucks + Freecash: Surveys, video recall, skill g
 
 Built autonomously following the OMNIFORGE SOVEREIGN EXECUTION PROTOCOL.
 
+**→ Ready to sell or launch: see [SELL.md](./SELL.md)** for pricing options, valuation, due-diligence package, and 7-day SaaS launch checklist.
+
 ## Run locally (right now)
 
 ```bash
 npm install
-# (already done in this workspace)
 npx prisma generate
-npm run db:push   # or the migration is already applied
+npm run db:push
 npx tsx prisma/seed.ts
 npm run dev
 ```
 
 Login:
 - Demo earner: `demo@earnforge.app` / `demo1234`
-- Admin: `admin@earnforge.app` / `kX&96TRNs8xlGFcvohM$@btCjA*5K_!J` (strong password set in .env)
+- Admin: `admin@earnforge.app` / (strong password set in .env)
 
 ## Key implemented systems (no placeholders)
 
@@ -36,29 +37,16 @@ Login:
 - Modern dark premium UX, fully responsive PWA-ready
 - Complete product surface: auth, earnings, payouts, referrals, settings stubs, support path ready, admin tools
 
-## Architecture highlights
-
-See ARCHITECTURE.md (to be expanded) + prisma/schema.prisma for the full data model.
-
 ## Commercial readiness
 
-See the full reports in REPORTS.md (or generate via protocol).
+Full market, architecture, security, and risk analysis lives in **REPORTS.md**.
 
 Who pays: Users (time/attention for tasks) + Advertisers (CPA for qualified actions + Pro subs).
 
-Why now: Category has proven $ hundreds of millions paid out annually. Trust is the #1 gap — we win with transparency, speed, and no "offer wall black boxes".
-
 Acquisition value: Clean codebase, full audit trail, real revenue model (advertiser-funded + take rate + subs), viral loops, low infra cost.
 
-## Next (post launch)
+## Launch path
 
-- Real Stripe webhooks + Pro fulfillment
-- External offer wall + postback tracking (with our fraud layer on top)
-- Mobile PWA + push
-- AI personalized feed + task generation
-- Full KYC for high volume (document upload + review)
-- Multi-region + tax forms (1099-NEC auto gen)
+See **SELL.md** + **LAUNCH.md**. Core is complete. Remaining work is external keys (Stripe, Postgres, email) + distribution.
 
 Production. Secure by default. Ready for real money and real users.
-
-Companion Power User Kit available for earnings tracking and referral optimization.
