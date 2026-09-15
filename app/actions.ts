@@ -1,22 +1,31 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
+import { requireUser, checkRateLimit } from '@/lib/auth'
 
-export async function completeTaskAction(formData: FormData, userId: string) {
-  const taskId = String(formData.get('taskId'))
+export async function completeTaskAction(formData: FormData, _ignoredUserId?: string) {
+  const user = await requireUser()
+  const userId = user.id
+
+  if (!checkRateLimit(`earn:${userId}`, 20, 60_000)) {
+    throw new Error('Too many task attempts. Slow down.')
+  }
+
+  const taskId = String(formData.get('taskId') || '')
+  if (!taskId) throw new Error('Missing task')
+
   const answersRaw = formData.get('answers') as string | null
-  const gameScore = formData.get('gameScore') ? parseInt(String(formData.get('gameScore'))) : null
-  const timeTaken = formData.get('timeTaken') ? parseInt(String(formData.get('timeTaken'))) : null
+  const gameScore = formData.get('gameScore') ? parseInt(String(formData.get('gameScore')), 10) : null
+  const timeTaken = formData.get('timeTaken') ? parseInt(String(formData.get('timeTaken')), 10) : null
 
   const task = await prisma.task.findUnique({ where: { id: taskId } })
   if (!task || !task.isActive) throw new Error('Task not available')
 
-  const ip = 'server'
   const existingToday = await prisma.taskCompletion.count({
     where: {
       userId,
       taskId,
-      createdAt: { gte: new Date(new Date().setHours(0,0,0,0)) },
+      createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
     },
   })
   if (existingToday >= task.dailyCap) throw new Error('Daily cap reached for this task')
@@ -25,44 +34,48 @@ export async function completeTaskAction(formData: FormData, userId: string) {
   let status: 'AUTO_APPROVED' | 'PENDING' | 'REJECTED' = 'AUTO_APPROVED'
   let fraud = 0
 
-  if (task.category === 'SURVEY' && answersRaw) {
-    const answers = JSON.parse(answersRaw)
-    const req = JSON.parse(task.requirements)
-    if (req.attentionCheck && answers[req.attentionCheck] !== 'Weekly') {
-      status = 'REJECTED'
-      points = 0
-      fraud = 85
+  try {
+    if (task.category === 'SURVEY' && answersRaw) {
+      const answers = JSON.parse(answersRaw)
+      const req = JSON.parse(task.requirements)
+      if (req.attentionCheck && answers[req.attentionCheck] !== 'Weekly') {
+        status = 'REJECTED'
+        points = 0
+        fraud = 85
+      }
     }
-  }
 
-  if (task.category === 'VIDEO' && answersRaw) {
-    const answers = JSON.parse(answersRaw)
-    const req = JSON.parse(task.requirements)
-    let correct = 0
-    req.quiz.forEach((q: any, i: number) => {
-      if (answers[`q${i}`] === q.correct) correct++
-    })
-    if (correct < 2) {
-      status = 'REJECTED'
-      points = Math.floor(points * 0.3)
-      fraud = 60
+    if (task.category === 'VIDEO' && answersRaw) {
+      const answers = JSON.parse(answersRaw)
+      const req = JSON.parse(task.requirements)
+      let correct = 0
+      ;(req.quiz || []).forEach((q: { correct: string }, i: number) => {
+        if (answers[`q${i}`] === q.correct) correct++
+      })
+      if (correct < 2) {
+        status = 'REJECTED'
+        points = Math.floor(points * 0.3)
+        fraud = 60
+      }
     }
-  }
 
-  if (task.category === 'GAME' && gameScore != null) {
-    const req = JSON.parse(task.requirements)
-    const full = req.targetTapsForFull || 38
-    const min = req.minTapsPartial || 18
-    if (gameScore >= full) points = task.pointsReward
-    else if (gameScore >= min) points = Math.floor(task.pointsReward * 0.6)
-    else {
-      status = 'REJECTED'
-      points = 10
+    if (task.category === 'GAME' && gameScore != null) {
+      const req = JSON.parse(task.requirements)
+      const full = req.targetTapsForFull || 38
+      const min = req.minTapsPartial || 18
+      if (gameScore >= full) points = task.pointsReward
+      else if (gameScore >= min) points = Math.floor(task.pointsReward * 0.6)
+      else {
+        status = 'REJECTED'
+        points = 10
+      }
+      if (timeTaken && timeTaken < 8) {
+        fraud = 70
+        status = 'PENDING'
+      }
     }
-    if (timeTaken && timeTaken < 8) {
-      fraud = 70
-      status = 'PENDING'
-    }
+  } catch {
+    throw new Error('Invalid task payload')
   }
 
   const completion = await prisma.$transaction(async (tx) => {
@@ -73,15 +86,15 @@ export async function completeTaskAction(formData: FormData, userId: string) {
         status,
         pointsAwarded: points,
         timeTakenSec: timeTaken,
-        answers: answersRaw || (gameScore ? JSON.stringify({ score: gameScore }) : null),
-        ip,
+        answers: answersRaw || (gameScore != null ? JSON.stringify({ score: gameScore }) : null),
+        ip: 'session',
         fraudScore: fraud,
       },
     })
 
     if (points > 0) {
-      const user = await tx.user.findUnique({ where: { id: userId } })
-      const newBal = (user?.currentPoints || 0) + points
+      const fresh = await tx.user.findUnique({ where: { id: userId } })
+      const newBal = (fresh?.currentPoints || 0) + points
       await tx.earningsLedger.create({
         data: {
           userId,
@@ -112,7 +125,7 @@ export async function completeTaskAction(formData: FormData, userId: string) {
                 type: 'REFERRAL_BONUS',
                 amount: share,
                 balanceAfter: newRefBal,
-                description: `10% from user task`,
+                description: `Referral share from task`,
                 reference: completion.id,
               },
             })
@@ -127,52 +140,54 @@ export async function completeTaskAction(formData: FormData, userId: string) {
   return { ok: true, points, status }
 }
 
-export async function requestPayoutAction(formData: FormData, userId: string) {
-  const amountPoints = parseInt(String(formData.get('amountPoints')))
-  const method = String(formData.get('method'))
-  const destination = String(formData.get('destination'))
+export async function requestPayoutAction(formData: FormData, _ignoredUserId?: string) {
+  const user = await requireUser()
+  const userId = user.id
 
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (!user) throw new Error('User not found')
+  if (!checkRateLimit(`payout:${userId}`, 5, 60_000)) {
+    throw new Error('Too many payout requests.')
+  }
 
-  if (amountPoints < 300 || amountPoints > user.currentPoints) throw new Error('Invalid amount')
-  if (!destination) throw new Error('Destination required')
+  const amountPoints = parseInt(String(formData.get('amountPoints')), 10)
+  const method = String(formData.get('method') || '')
+  const destination = String(formData.get('destination') || '').trim()
+
+  const fresh = await prisma.user.findUnique({ where: { id: userId } })
+  if (!fresh) throw new Error('User not found')
+
+  const allowed = ['PAYPAL', 'CRYPTO_BTC', 'CRYPTO_ETH', 'GIFT_AMAZON', 'GIFT_GOOGLE', 'BANK']
+  if (!allowed.includes(method)) throw new Error('Invalid method')
+  if (amountPoints < 300 || amountPoints > fresh.currentPoints) throw new Error('Invalid amount')
+  if (!destination || destination.length > 200) throw new Error('Destination required')
 
   const fee = Math.floor(amountPoints * 0.08)
   const net = amountPoints - fee
-  const usd = (net / 100).toFixed(2)
+  const usd = Number((net / 100).toFixed(2))
 
   await prisma.$transaction(async (tx) => {
     const req = await tx.payoutRequest.create({
       data: {
         userId,
         amountPoints,
-        amountUSD: parseFloat(usd),
+        amountUSD: usd,
         method,
         destination,
         feePoints: fee,
-        status: user.isPro && amountPoints <= 2000 ? 'PAID' : 'PENDING',
+        status: fresh.isPro && amountPoints <= 2000 ? 'PENDING' : 'PENDING',
       },
     })
 
-    const newBal = user.currentPoints - amountPoints
+    const newBal = fresh.currentPoints - amountPoints
     await tx.earningsLedger.create({
       data: {
         userId,
         type: 'PAYOUT_DEBIT',
         amount: -amountPoints,
         balanceAfter: newBal,
-        description: `Payout request #${req.id.slice(0,8)}`,
+        description: `Payout request #${req.id.slice(0, 8)}`,
         reference: req.id,
       },
     })
     await tx.user.update({ where: { id: userId }, data: { currentPoints: newBal } })
-
-    if (req.status === 'PAID') {
-      await tx.payoutRequest.update({
-        where: { id: req.id },
-        data: { processedAt: new Date(), txRef: 'AUTO-' + Date.now() },
-      })
-    }
   })
 }
