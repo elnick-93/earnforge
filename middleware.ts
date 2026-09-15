@@ -6,14 +6,8 @@ const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'dev-secret-change-in-prod-now'
 )
 
-const PROTECTED = ['/dashboard', '/admin', '/payouts', '/settings', '/earn']
-const ADMIN = ['/admin']
-
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
-
-  const needsAuth = PROTECTED.some((p) => pathname.startsWith(p))
-  if (!needsAuth) return NextResponse.next()
 
   const token = req.cookies.get('earnforge_session')?.value
   if (!token) {
@@ -24,9 +18,13 @@ export async function middleware(req: NextRequest) {
 
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET)
-    const role = (payload as any).role || 'EARNER'
+    const role = (payload as { role?: string }).role || 'EARNER'
 
-    if (ADMIN.some((p) => pathname.startsWith(p)) && role !== 'ADMIN') {
+    if (pathname.startsWith('/admin') && role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+
+    if (pathname.startsWith('/advertiser') && role !== 'ADVERTISER' && role !== 'ADMIN') {
       return NextResponse.redirect(new URL('/dashboard', req.url))
     }
 
@@ -38,5 +36,12 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/admin/:path*', '/payouts/:path*', '/settings/:path*', '/earn/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/admin/:path*',
+    '/advertiser/:path*',
+    '/payouts/:path*',
+    '/settings/:path*',
+    '/earn/:path*',
+  ],
 }
