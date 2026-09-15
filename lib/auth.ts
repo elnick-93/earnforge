@@ -26,17 +26,27 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export async function createSession(userId: string, ip?: string, userAgent?: string) {
-  const token = await new SignJWT({ sub: userId, iat: Math.floor(Date.now() / 1000) })
+  const dbUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, email: true },
+  })
+  const role = dbUser?.role || 'EARNER'
+
+  const token = await new SignJWT({
+    sub: userId,
+    role,
+    email: dbUser?.email,
+    iat: Math.floor(Date.now() / 1000),
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('7d')
     .sign(JWT_SECRET)
 
-  // Optional persistent session row for audit/revoke
   try {
     await prisma.session.create({
       data: {
         userId,
-        token: token.substring(0, 32), // store prefix only for lookup
+        token: token.substring(0, 32),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         ip: ip || null,
         userAgent: userAgent || null,
@@ -102,7 +112,6 @@ export async function clearSession() {
   cookieStore.delete('earnforge_session')
 }
 
-// Simple in-memory rate limit for actions (prod: use Redis/Upstash)
 const rateMap = new Map<string, { count: number; reset: number }>()
 
 export function checkRateLimit(key: string, limit = 30, windowMs = 60_000) {
